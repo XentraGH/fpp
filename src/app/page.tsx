@@ -6,7 +6,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 import { examples, tutorials, getExamplesByCategory, type FPPExample } from '@/lib/fpp/examples';
 
 // Default F++ code
@@ -58,13 +57,13 @@ const DEFAULT_CODE = `page:
 export default function FPPIDE() {
   const [code, setCode] = useState(DEFAULT_CODE);
   const [compiledHtml, setCompiledHtml] = useState('');
-  const [compiledCss, setCompiledCss] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
   const [googleFonts, setGoogleFonts] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('editor');
   const [selectedExample, setSelectedExample] = useState<string>('hello-world');
   const [isConverting, setIsConverting] = useState(false);
   const [htmlInput, setHtmlInput] = useState('');
+  const [mounted, setMounted] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Compile F++ code
@@ -80,13 +79,13 @@ export default function FPPIDE() {
       
       if (result.success) {
         setCompiledHtml(result.html);
-        setCompiledCss(result.css);
         setGoogleFonts(result.googleFonts || []);
         setErrors(result.errors || []);
       } else {
         setErrors(result.errors || ['Compilation failed']);
       }
     } catch (error) {
+      console.error('Compile error:', error);
       setErrors(['Failed to compile code']);
     }
   }, []);
@@ -110,6 +109,7 @@ export default function FPPIDE() {
         setActiveTab('editor');
       }
     } catch (error) {
+      console.error('Convert error:', error);
       setErrors(['Failed to convert HTML']);
     } finally {
       setIsConverting(false);
@@ -118,7 +118,7 @@ export default function FPPIDE() {
 
   // Download HTML file
   const downloadHtml = useCallback(() => {
-    if (!compiledHtml) return;
+    if (!compiledHtml || typeof window === 'undefined') return;
     
     const blob = new Blob([compiledHtml], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
@@ -141,23 +141,27 @@ export default function FPPIDE() {
     }
   }, []);
 
+  // Handle client-side mounting
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // Compile on code change with debounce
   useEffect(() => {
+    if (!mounted) return;
+    
     const timer = setTimeout(() => {
       compileCode(code);
     }, 500);
     
     return () => clearTimeout(timer);
-  }, [code, compileCode]);
-
-  // Initial compile
-  useEffect(() => {
-    compileCode(code);
-  }, []);
+  }, [code, compileCode, mounted]);
 
   // Update iframe with compiled HTML
   useEffect(() => {
-    if (iframeRef.current && compiledHtml) {
+    if (!mounted || !iframeRef.current || !compiledHtml) return;
+    
+    try {
       const iframe = iframeRef.current;
       const doc = iframe.contentDocument || iframe.contentWindow?.document;
       if (doc) {
@@ -165,8 +169,19 @@ export default function FPPIDE() {
         doc.write(compiledHtml);
         doc.close();
       }
+    } catch (error) {
+      console.error('Iframe error:', error);
     }
-  }, [compiledHtml]);
+  }, [compiledHtml, mounted]);
+
+  // Show loading state
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading F++ IDE...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
@@ -190,9 +205,7 @@ export default function FPPIDE() {
             <Button 
               variant="outline" 
               size="sm" 
-              onClick={() => {
-                setActiveTab('convert');
-              }}
+              onClick={() => setActiveTab('convert')}
             >
               HTML → F++
             </Button>
@@ -247,15 +260,13 @@ export default function FPPIDE() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <div className="relative">
-                    <textarea
-                      value={code}
-                      onChange={(e) => setCode(e.target.value)}
-                      className="w-full h-[600px] bg-slate-900 text-slate-100 font-mono text-sm p-4 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Write your F++ code here..."
-                      spellCheck={false}
-                    />
-                  </div>
+                  <textarea
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    className="w-full h-[600px] bg-slate-900 text-slate-100 font-mono text-sm p-4 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Write your F++ code here..."
+                    spellCheck={false}
+                  />
                 </CardContent>
               </Card>
 
@@ -306,7 +317,6 @@ export default function FPPIDE() {
           {/* Tutorials Tab */}
           <TabsContent value="tutorials" className="mt-0">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Tutorial List */}
               <Card className="bg-slate-800 border-slate-700">
                 <CardHeader>
                   <CardTitle>Tutorials</CardTitle>
@@ -319,7 +329,6 @@ export default function FPPIDE() {
                         key={tutorial.id}
                         variant="ghost"
                         className="w-full justify-start text-left"
-                        onClick={() => {}}
                       >
                         {tutorial.title}
                       </Button>
@@ -328,15 +337,14 @@ export default function FPPIDE() {
                 </CardContent>
               </Card>
 
-              {/* Tutorial Content */}
               <Card className="lg:col-span-2 bg-slate-800 border-slate-700">
                 <CardContent className="prose prose-invert max-w-none p-6">
                   {tutorials.map((tutorial) => (
-                    <div key={tutorial.id}>
+                    <div key={tutorial.id} className="mb-8">
                       <h2 className="text-xl font-bold mb-4">{tutorial.title}</h2>
-                      <div className="whitespace-pre-wrap text-slate-300">
+                      <pre className="whitespace-pre-wrap text-slate-300 text-sm bg-slate-900 p-4 rounded-lg overflow-auto">
                         {tutorial.content}
-                      </div>
+                      </pre>
                     </div>
                   ))}
                 </CardContent>
@@ -347,7 +355,6 @@ export default function FPPIDE() {
           {/* Examples Tab */}
           <TabsContent value="examples" className="mt-0">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-              {/* Example Categories */}
               <div className="space-y-4">
                 {['basics', 'layout', 'forms', 'media', 'advanced'].map((category) => (
                   <Card key={category} className="bg-slate-800 border-slate-700">
@@ -373,7 +380,6 @@ export default function FPPIDE() {
                 ))}
               </div>
 
-              {/* Example Preview */}
               <div className="lg:col-span-3">
                 {examples.find(e => e.id === selectedExample) && (
                   <Card className="bg-slate-800 border-slate-700">
@@ -391,7 +397,7 @@ export default function FPPIDE() {
                       </div>
                     </CardHeader>
                     <CardContent>
-                      <pre className="bg-slate-900 p-4 rounded-lg overflow-x-auto text-sm">
+                      <pre className="bg-slate-900 p-4 rounded-lg overflow-x-auto text-sm max-h-[500px] overflow-auto">
                         <code>{examples.find(e => e.id === selectedExample)?.code}</code>
                       </pre>
                     </CardContent>
@@ -404,7 +410,6 @@ export default function FPPIDE() {
           {/* Documentation Tab */}
           <TabsContent value="docs" className="mt-0">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Nav */}
               <Card className="bg-slate-800 border-slate-700 h-fit">
                 <CardHeader>
                   <CardTitle>Documentation</CardTitle>
@@ -446,7 +451,6 @@ export default function FPPIDE() {
                 </CardContent>
               </Card>
 
-              {/* Content */}
               <Card className="lg:col-span-2 bg-slate-800 border-slate-700">
                 <CardHeader>
                   <CardTitle>F++ Reference</CardTitle>
@@ -571,7 +575,7 @@ export default function FPPIDE() {
         <div className="container mx-auto px-4 py-4 text-center text-sm text-slate-400">
           <p>F++ Programming Language - Write HTML in Plain English</p>
           <p className="mt-1">
-            <a href="https://github.com/romanete366-tech/fpp" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+            <a href="https://github.com/XentraGH/fpp" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
               GitHub Repository
             </a>
           </p>
